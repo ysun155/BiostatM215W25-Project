@@ -1,0 +1,534 @@
+---
+title: "BiostatM215 Project Code"
+format:
+  html:
+    theme: cosmo
+    embed-resources: true
+    number-sections: false
+    toc: true
+    toc-depth: 4
+    toc-location: left
+    code-fold: false
+knitr:
+  opts_chunk: 
+    cache: false    
+    echo: true
+    fig.align: 'center'
+    fig.width: 6
+    fig.height: 4
+    message: FALSE
+---
+
+# load package
+
+```{r message=FALSE}
+library(dplyr)
+library(survminer)
+library(survival)
+library(ggplot2)
+library(gridExtra)
+library(gtsummary)
+library(patchwork)
+library(survival)
+library(broom)
+library(flextable)
+library(officer)
+```
+
+# read the data
+
+```{r}
+PEACE <- read.csv("peacedata.csv",header = TRUE)
+head(PEACE)
+dim(PEACE)
+
+# check whether there is N/A value
+sum(is.na(PEACE))
+
+# check event rate
+table(PEACE$death)
+```
+
+<!-- # visualization -->
+
+```{r fig.height=7, fig.width=20}
+data <- PEACE
+
+data$death <- factor(data$death, labels = c("Censored", "Death"))
+data$tx <- factor(data$tx, labels = c("Standard", "Treatment"))
+data$gender <- factor(data$gender, labels = c("Male", "Female"))
+data$hidiabet <- factor(data$hidiabet, labels = c("No Diabetes", "Diabetes"))
+data$hihypert <- factor(data$hihypert, labels = c("No Hypertension", "Hypertension"))
+
+# Function to create bar plots
+plot_bar <- function(df, column, title) {
+  ggplot(df, aes_string(x = column, fill = column)) +
+    geom_bar() +
+    labs(title = title, x = column, y = "Count") +
+    theme_minimal() +
+    theme(legend.position = "none")
+}
+
+# Generate bar plots
+
+p0 <- plot_bar(data, "death", "Death Status Distribution")
+p1 <- plot_bar(data, "tx", "Treatment Group Distribution")
+p2 <- plot_bar(data, "gender", "Gender Distribution")
+p3 <- plot_bar(data, "hidiabet", "Diabetes History Distribution")
+p4 <- plot_bar(data, "hihypert", "Hypertension History Distribution")
+p5 <- ggplot(data, aes(x = age)) +
+  geom_histogram(binwidth = 3, fill = "skyblue", color = "black") +
+  labs(title = "Age Distribution", x = "Age", y = "Count") +
+  theme_minimal()
+p6 <- ggplot(data, aes(x = sysbp)) +
+  geom_histogram(binwidth = 5, fill = "skyblue", color = "black") +
+  labs(title = "Systolic Blood Pressure Distribution", x = "Systolic Blood Pressure", y = "Count") +
+  theme_minimal()
+
+# Arrange all plots in a grid layout
+grid.arrange(p0,p1, p2, p3, p4,p5,p6, ncol = 4)
+```
+
+# tab1 - Baseline characteristics
+
+```{r}
+tab1 <- data %>%
+  select(tx, age, sysbp, gender, hidiabet, hihypert) %>%
+  tbl_summary(by = tx,  # Compare by treatment group
+              statistic = list(all_continuous() ~ "{mean} ({sd})",
+                               all_categorical() ~ "{n} ({p}%)"),
+              missing = "no",
+              label = list(
+      age ~ "Age (years)",
+      sysbp ~ "Systolic Blood Pressure",
+      gender ~ "Gender",
+      hidiabet ~ "History of Diabetes",
+      hihypert ~ "History of Hypertension"
+    )) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test",
+    all_categorical() ~ "chisq.test")
+    ) %>%
+  modify_header(label = "**Variable**") %>%
+  bold_labels()
+tab1
+
+# Save as a Word document (easy to copy into Google Docs)
+library(officer)
+tab1 %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(path = "tab1.docx")
+```
+
+
+# fig1 - km curve
+
+```{r fig.height=7, fig.width= 7}
+fit = survfit(Surv(t2death, death) ~ tx, data = PEACE)
+#summary(fit)
+fig1 <- ggsurvplot(fit, 
+           data = PEACE, 
+           pval = TRUE,
+           pval.coord = c(10, 0.85),
+           conf.int = TRUE, 
+           risk.table = TRUE, 
+           palette="jco", 
+           #title = "Kaplan-Meier Curve", 
+           legend.labs=c("Standard", 
+                         "ACE-inhibitor therapy"), 
+           legend.title="Treatment", 
+           tables.height = 0.25,
+           ylim = c(0.8, 1))
+fig1
+
+# save as png
+library(cowplot)
+png("fig1.png", width = 7, height = 7, units = "in", res = 300)
+print(fig1)
+dev.off()
+```
+
+
+# log-rank test (just to check)
+
+```{r}
+log_rank=survdiff(Surv(t2death, death) ~ tx, data = PEACE)
+log_rank$pvalue
+```
+
+# original cox model (not good fit)
+
+## mod1
+
+```{r}
+fit1 <- coxph(Surv(t2death,death) ~ tx, data = PEACE, ties = 'breslow') 
+summary(fit1)
+```
+
+```{r}
+cox.zph(fit1)
+
+#Get Cox-Snell residual based on Martingale residuals
+mg.residual <- resid(fit1, type = "martingale")
+cs.residual <- PEACE$death - mg.residual
+#Graphical Plot
+fit.cs <- survfit(Surv(cs.residual, PEACE$death) ~ 1) #Get Kaplan-Meier estiamtes
+H.cs <- cumsum(fit.cs$n.event/fit.cs$n.risk)
+plot(fit.cs$time, H.cs, type='s', col='blue',
+main = 'Cox-Snell Residual Plot',
+xlab = 'Residual', ylab = 'Nelson-Aalen Cum. Hazard')
+#Note here that 'time' is the value of the Cox-Snell residual
+abline(0, 1, col='red', lty = 2)
+```
+
+## mod2
+
+```{r}
+fit2 <- coxph(Surv(t2death,death) ~ tx + age + gender, data = PEACE, ties = 'breslow') 
+summary(fit2)
+```
+
+```{r}
+cox.zph(fit2)
+
+#Get Cox-Snell residual based on Martingale residuals
+mg.residual <- resid(fit2, type = "martingale")
+cs.residual <- PEACE$death - mg.residual
+#Graphical Plot
+fit.cs <- survfit(Surv(cs.residual, PEACE$death) ~ 1) #Get Kaplan-Meier estiamtes
+H.cs <- cumsum(fit.cs$n.event/fit.cs$n.risk)
+plot(fit.cs$time, H.cs, type='s', col='blue',
+main = 'Cox-Snell Residual Plot',
+xlab = 'Residual', ylab = 'Nelson-Aalen Cum. Hazard')
+#Note here that 'time' is the value of the Cox-Snell residual
+abline(0, 1, col='red', lty = 2)
+```
+
+
+
+## mod3
+
+```{r}
+fit3 <- coxph(Surv(t2death,death) ~ tx + age + gender + sysbp + hidiabet + hihypert, data = PEACE, ties = 'breslow') 
+summary(fit3)
+```
+
+```{r}
+cox.zph(fit3)
+
+#Get Cox-Snell residual based on Martingale residuals
+mg.residual <- resid(fit2, type = "martingale")
+cs.residual <- PEACE$death - mg.residual
+#Graphical Plot
+fit.cs <- survfit(Surv(cs.residual, PEACE$death) ~ 1) #Get Kaplan-Meier estiamtes
+H.cs <- cumsum(fit.cs$n.event/fit.cs$n.risk)
+plot(fit.cs$time, H.cs, type='s', col='blue',
+main = 'Cox-Snell Residual Plot',
+xlab = 'Residual', ylab = 'Nelson-Aalen Cum. Hazard')
+#Note here that 'time' is the value of the Cox-Snell residual
+abline(0, 1, col='red', lty = 2)
+```
+
+
+# final cox model (add strata by age group)
+
+```{r}
+PEACE <- PEACE %>%
+  mutate(age.group = ifelse(age <= 65, 0, 1))
+```
+
+## mod1
+
+```{r}
+fit1 <- coxph(Surv(t2death,death) ~ tx + strata(age.group), data = PEACE, ties = 'breslow') 
+summary(fit1)
+```
+
+```{r}
+cox.zph(fit1)
+
+#Get Cox-Snell residual based on Martingale residuals
+mg.residual <- resid(fit1, type = "martingale")
+cs.residual <- PEACE$death - mg.residual
+#Graphical Plot
+fit.cs <- survfit(Surv(cs.residual, PEACE$death) ~ 1) #Get Kaplan-Meier estiamtes
+H.cs <- cumsum(fit.cs$n.event/fit.cs$n.risk)
+plot(fit.cs$time, H.cs, type='s', col='blue',
+main = 'Cox-Snell Residual Plot',
+xlab = 'Residual', ylab = 'Nelson-Aalen Cum. Hazard')
+#Note here that 'time' is the value of the Cox-Snell residual
+abline(0, 1, col='red', lty = 2)
+```
+
+
+## mod2
+
+```{r}
+fit2 <- coxph(Surv(t2death,death) ~ tx + sysbp + hidiabet + hihypert + gender + strata(age.group), data = PEACE, ties = 'breslow') 
+summary(fit2)
+```
+
+```{r}
+cox.zph(fit2)
+
+#Get Cox-Snell residual based on Martingale residuals
+mg.residual <- resid(fit2, type = "martingale")
+cs.residual <- PEACE$death - mg.residual
+#Graphical Plot
+fit.cs <- survfit(Surv(cs.residual, PEACE$death) ~ 1) #Get Kaplan-Meier estiamtes
+H.cs <- cumsum(fit.cs$n.event/fit.cs$n.risk)
+plot(fit.cs$time, H.cs, type='s', col='blue',
+main = 'Cox-Snell Residual Plot',
+xlab = 'Residual', ylab = 'Nelson-Aalen Cum. Hazard')
+#Note here that 'time' is the value of the Cox-Snell residual
+abline(0, 1, col='red', lty = 2)
+```
+
+
+# male only
+
+```{r}
+PEACE.m <- PEACE[PEACE$gender == "0", ]
+PEACE.m$gender <- NULL
+PEACE.m$age <- NULL
+```
+
+
+## mod1
+
+```{r}
+fit1.m <- coxph(Surv(t2death,death) ~ tx + strata(age.group), data = PEACE.m, ties = 'breslow') 
+summary(fit1.m)
+```
+
+```{r}
+cox.zph(fit1.m)
+
+#Get Cox-Snell residual based on Martingale residuals
+mg.residual <- resid(fit1.m, type = "martingale")
+cs.residual <- PEACE.m$death - mg.residual
+#Graphical Plot
+fit.cs <- survfit(Surv(cs.residual, PEACE.m$death) ~ 1) #Get Kaplan-Meier estiamtes
+H.cs <- cumsum(fit.cs$n.event/fit.cs$n.risk)
+plot(fit.cs$time, H.cs, type='s', col='blue',
+main = 'Cox-Snell Residual Plot',
+xlab = 'Residual', ylab = 'Nelson-Aalen Cum. Hazard')
+#Note here that 'time' is the value of the Cox-Snell residual
+abline(0, 1, col='red', lty = 2)
+```
+
+## mod2
+
+```{r}
+fit2.m <- coxph(Surv(t2death,death) ~ tx + sysbp + hidiabet + hihypert + strata(age.group), data = PEACE.m, ties = 'breslow') 
+summary(fit2.m)
+```
+
+```{r}
+cox.zph(fit2.m)
+
+#Get Cox-Snell residual based on Martingale residuals
+mg.residual <- resid(fit2.m, type = "martingale")
+cs.residual <- PEACE.m$death - mg.residual
+#Graphical Plot
+fit.cs <- survfit(Surv(cs.residual, PEACE.m$death) ~ 1) #Get Kaplan-Meier estiamtes
+H.cs <- cumsum(fit.cs$n.event/fit.cs$n.risk)
+plot(fit.cs$time, H.cs, type='s', col='blue',
+main = 'Cox-Snell Residual Plot',
+xlab = 'Residual', ylab = 'Nelson-Aalen Cum. Hazard')
+#Note here that 'time' is the value of the Cox-Snell residual
+abline(0, 1, col='red', lty = 2)
+```
+
+
+# female only
+
+```{r}
+PEACE.f <- PEACE[PEACE$gender == "1", ]
+PEACE.f$gender <- NULL
+PEACE.f$age <- NULL
+```
+
+## mod1
+
+```{r}
+fit1.f <- coxph(Surv(t2death,death) ~ tx + strata(age.group), data = PEACE.f, ties = 'breslow') 
+summary(fit1.f)
+```
+
+```{r}
+cox.zph(fit1.f)
+
+#Get Cox-Snell residual based on Martingale residuals
+mg.residual <- resid(fit1.f, type = "martingale")
+cs.residual <- PEACE.f$death - mg.residual
+#Graphical Plot
+fit.cs <- survfit(Surv(cs.residual, PEACE.f$death) ~ 1) #Get Kaplan-Meier estiamtes
+H.cs <- cumsum(fit.cs$n.event/fit.cs$n.risk)
+plot(fit.cs$time, H.cs, type='s', col='blue',
+main = 'Cox-Snell Residual Plot',
+xlab = 'Residual', ylab = 'Nelson-Aalen Cum. Hazard')
+#Note here that 'time' is the value of the Cox-Snell residual
+abline(0, 1, col='red', lty = 2)
+```
+
+## mod2
+
+```{r}
+fit2.f <- coxph(Surv(t2death,death) ~ tx + sysbp + hidiabet + hihypert + strata(age.group), data = PEACE.f, ties = 'breslow') 
+summary(fit2.f)
+```
+
+```{r}
+cox.zph(fit2.f)
+
+#Get Cox-Snell residual based on Martingale residuals
+mg.residual <- resid(fit2.f, type = "martingale")
+cs.residual <- PEACE.f$death - mg.residual
+#Graphical Plot
+fit.cs <- survfit(Surv(cs.residual, PEACE.f$death) ~ 1) #Get Kaplan-Meier estiamtes
+H.cs <- cumsum(fit.cs$n.event/fit.cs$n.risk)
+plot(fit.cs$time, H.cs, type='s', col='blue',
+main = 'Cox-Snell Residual Plot',
+xlab = 'Residual', ylab = 'Nelson-Aalen Cum. Hazard')
+#Note here that 'time' is the value of the Cox-Snell residual
+abline(0, 1, col='red', lty = 2)
+```
+
+
+# tab2 - summary of all models
+
+```{r}
+# Extract results for all models
+tidy_fit1 <- tidy(fit1, exponentiate = TRUE) %>%
+  mutate(Model = "Model 1") %>%
+  mutate(across(c(estimate, std.error), ~ round(.x, 2)),
+         across(c(p.value), ~ round(.x, 4)))
+
+tidy_fit2 <- tidy(fit2, exponentiate = TRUE) %>%
+  mutate(Model = "Model 2") %>%
+  mutate(across(c(estimate, std.error), ~ round(.x, 2)),
+         across(c(p.value), ~ round(.x, 4)))
+
+tidy_fit1_m <- tidy(fit1.m, exponentiate = TRUE) %>%
+  mutate(Model = "Male Model 1") %>%
+  mutate(across(c(estimate, std.error), ~ round(.x, 2)),
+         across(c(p.value), ~ round(.x, 4)))
+
+tidy_fit2_m <- tidy(fit2.m, exponentiate = TRUE) %>%
+  mutate(Model = "Male Model 2") %>%
+  mutate(across(c(estimate, std.error), ~ round(.x, 2)),
+         across(c(p.value), ~ round(.x, 4)))
+
+tidy_fit1_f <- tidy(fit1.f, exponentiate = TRUE) %>%
+  mutate(Model = "Female Model 1") %>%
+  mutate(across(c(estimate, std.error), ~ round(.x, 2)),
+         across(c(p.value), ~ round(.x, 4)))
+
+tidy_fit2_f <- tidy(fit2.f, exponentiate = TRUE) %>%
+  mutate(Model = "Female Model 2") %>%
+  mutate(across(c(estimate, std.error), ~ round(.x, 2)),
+         across(c(p.value), ~ round(.x, 4)))
+
+# Combine all model terms
+all_variables <- unique(c(tidy_fit1$term, tidy_fit2$term, 
+                          tidy_fit1_m$term, tidy_fit2_m$term, 
+                          tidy_fit1_f$term, tidy_fit2_f$term))
+
+# Create model data frames ensuring Model 1 has only one value filled
+df_model1 <- data.frame(
+  Variable = all_variables,
+  HR1 = ifelse(all_variables == "tx", tidy_fit1$estimate[tidy_fit1$term == "tx"], NA),
+  SE1 = ifelse(all_variables == "tx", tidy_fit1$std.error[tidy_fit1$term == "tx"], NA),
+  PValue1 = ifelse(all_variables == "tx", tidy_fit1$p.value[tidy_fit1$term == "tx"], NA)
+)
+
+df_model2 <- tidy_fit2 %>%
+  select(term, estimate, std.error, p.value) %>%
+  rename(Variable = term, HR2 = estimate, SE2 = std.error, PValue2 = p.value)
+
+df_model1_m <- tidy_fit1_m %>%
+  select(term, estimate, std.error, p.value) %>%
+  rename(Variable = term, HR1M = estimate, SE1M = std.error, PValue1M = p.value)
+
+df_model2_m <- tidy_fit2_m %>%
+  select(term, estimate, std.error, p.value) %>%
+  rename(Variable = term, HR2M = estimate, SE2M = std.error, PValue2M = p.value)
+
+df_model1_f <- tidy_fit1_f %>%
+  select(term, estimate, std.error, p.value) %>%
+  rename(Variable = term, HR1F = estimate, SE1F = std.error, PValue1F = p.value)
+
+df_model2_f <- tidy_fit2_f %>%
+  select(term, estimate, std.error, p.value) %>%
+  rename(Variable = term, HR2F = estimate, SE2F = std.error, PValue2F = p.value)
+
+# Merge all model results
+cox_results <- full_join(df_model1, df_model2, by = "Variable") %>%
+  full_join(df_model1_m, by = "Variable") %>%
+  full_join(df_model2_m, by = "Variable") %>%
+  full_join(df_model1_f, by = "Variable") %>%
+  full_join(df_model2_f, by = "Variable")
+
+# Rename variables to descriptive names
+cox_results <- cox_results %>%
+  mutate(Variable = recode(Variable,
+    tx = "Treatment",
+    gender = "Gender",
+    sysbp = "Systolic blood pressure",
+    hidiabet = "History of diabetes",
+    hihypert = "History of hypertension"
+  ))
+
+# Convert to flextable with grouped headers
+ft <- flextable(cox_results) %>%
+  set_header_labels(
+    Variable = " ",
+    HR1 = "HR", SE1 = "SE", PValue1 = "p-value",
+    HR2 = "HR", SE2 = "SE", PValue2 = "p-value",
+    HR1M = "HR", SE1M = "SE", PValue1M = "p-value",
+    HR2M = "HR", SE2M = "SE", PValue2M = "p-value",
+    HR1F = "HR", SE1F = "SE", PValue1F = "p-value",
+    HR2F = "HR", SE2F = "SE", PValue2F = "p-value"
+  ) %>%
+  add_header(
+    HR1 = "Model I", SE1 = "Model I", PValue1 = "Model I",
+    HR2 = "Model II", SE2 = "Model II", PValue2 = "Model II",
+    HR1M = "Model I", SE1M = "Model I", PValue1M = "Model I",
+    HR2M = "Model II", SE2M = "Model II", PValue2M = "Model II",
+    HR1F = "Model I", SE1F = "Model I", PValue1F = "Model I",
+    HR2F = "Model II", SE2F = "Model II", PValue2F = "Model II",
+    top = TRUE
+  ) %>%
+  add_header(
+    HR1 = "All", SE1 = "All", PValue1 = "All",
+    HR2 = "All", SE2 = "All", PValue2 = "All",
+    HR1M = "Male", SE1M = "Male", PValue1M = "Male",
+    HR2M = "Male", SE2M = "Male", PValue2M = "Male",
+    HR1F = "Female", SE1F = "Female", PValue1F = "Female",
+    HR2F = "Female", SE2F = "Female", PValue2F = "Female",
+    top = TRUE
+  ) %>%
+  merge_h(part = "header") %>%
+  align(align = "center", part = "all") %>%
+  autofit() %>%
+  add_footer_lines("Abbreviations: HR, Hazard Ratio; SE, Standard Error.") %>%
+  align(align = "left", part = "footer")
+
+ft
+
+# Save as Word document
+doc <- read_docx()
+doc <- body_add_flextable(doc, ft)
+print(doc, target = "tab2.docx")
+```
+
+
+
+
+
+
+
+
+
+

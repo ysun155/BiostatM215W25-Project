@@ -395,25 +395,74 @@ doc <- body_add_flextable(doc, ft)
 print(doc, target = "tab2.docx")
 ```
 
-# interaction test
+# interaction test - wald test
 
 ```{r}
+# Interaction test for tx * age.group
 mod <- coxph(Surv(t2death,death) ~ tx*age.group + gender + sysbp + hidiabet + hihypert, data = PEACE, ties = 'breslow')
-summary(mod)$coefficients
+pval_age_group <- summary(mod)$coefficients["tx:age.group", "Pr(>|z|)"]
 
+# Interaction test for tx * gender
 mod <- coxph(Surv(t2death,death) ~ tx*gender + age.group + sysbp + hidiabet + hihypert, data = PEACE, ties = 'breslow')
-summary(mod)$coefficients
+pval_gender <- summary(mod)$coefficients["tx:gender", "Pr(>|z|)"]
 
+# Interaction test for tx * sysbp
 mod <- coxph(Surv(t2death,death) ~ tx*sysbp + gender + age.group + hidiabet + hihypert, data = PEACE, ties = 'breslow')
-summary(mod)$coefficients
+pval_sysbp <- summary(mod)$coefficients["tx:sysbp", "Pr(>|z|)"]
 
+# Interaction test for tx * hidiabet
 mod <- coxph(Surv(t2death,death) ~ tx*hidiabet + gender + sysbp + age.group + hihypert, data = PEACE, ties = 'breslow')
-summary(mod)$coefficients
+pval_hidiabet <- summary(mod)$coefficients["tx:hidiabet", "Pr(>|z|)"]
 
+# Interaction test for tx * hihypert
 mod <- coxph(Surv(t2death,death) ~ tx*hihypert + gender + sysbp + hidiabet + age.group, data = PEACE, ties = 'breslow')
-summary(mod)$coefficients
+pval_hihypert <- summary(mod)$coefficients["tx:hihypert", "Pr(>|z|)"]
+
+data.frame(
+  Interaction = c("tx:age.group", "tx:gender", "tx:sysbp", "tx:hidiabet", "tx:hihypert"),
+  P_Value = c(pval_age_group, pval_gender, pval_sysbp, pval_hidiabet, pval_hihypert)
+)
 ```
 
+# interaction test - LRT
+
+```{r}
+# Function to extract LRT p-value
+get_LRT_pval <- function(full_model, reduced_model) {
+  lrt_result <- anova(reduced_model, full_model, test="LRT")
+  return(lrt_result$`Pr(>|Chi|)`[2])  # Extract p-value for the interaction term
+}
+
+# Interaction test for tx * age.group
+mod_full <- coxph(Surv(t2death,death) ~ tx*age.group + gender + sysbp + hidiabet + hihypert, data = PEACE, ties = 'breslow')
+mod_reduced <- coxph(Surv(t2death,death) ~ tx + age.group + gender + sysbp + hidiabet + hihypert, data = PEACE, ties = 'breslow')
+pval_age_group <- get_LRT_pval(mod_full, mod_reduced)
+
+# Interaction test for tx * gender
+mod_full <- coxph(Surv(t2death,death) ~ tx*gender + age.group + sysbp + hidiabet + hihypert, data = PEACE, ties = 'breslow')
+mod_reduced <- coxph(Surv(t2death,death) ~ tx + gender + age.group + sysbp + hidiabet + hihypert, data = PEACE, ties = 'breslow')
+pval_gender <- get_LRT_pval(mod_full, mod_reduced)
+
+# Interaction test for tx * sysbp
+mod_full <- coxph(Surv(t2death,death) ~ tx*sysbp + gender + age.group + hidiabet + hihypert, data = PEACE, ties = 'breslow')
+mod_reduced <- coxph(Surv(t2death,death) ~ tx + sysbp + gender + age.group + hidiabet + hihypert, data = PEACE, ties = 'breslow')
+pval_sysbp <- get_LRT_pval(mod_full, mod_reduced)
+
+# Interaction test for tx * hidiabet
+mod_full <- coxph(Surv(t2death,death) ~ tx*hidiabet + gender + sysbp + age.group + hihypert, data = PEACE, ties = 'breslow')
+mod_reduced <- coxph(Surv(t2death,death) ~ tx + hidiabet + gender + sysbp + age.group + hihypert, data = PEACE, ties = 'breslow')
+pval_hidiabet <- get_LRT_pval(mod_full, mod_reduced)
+
+# Interaction test for tx * hihypert
+mod_full <- coxph(Surv(t2death,death) ~ tx*hihypert + gender + sysbp + hidiabet + age.group, data = PEACE, ties = 'breslow')
+mod_reduced <- coxph(Surv(t2death,death) ~ tx + hihypert + gender + sysbp + hidiabet + age.group, data = PEACE, ties = 'breslow')
+pval_hihypert <- get_LRT_pval(mod_full, mod_reduced)
+
+data.frame(
+  Interaction = c("tx:age.group", "tx:gender", "tx:sysbp", "tx:hidiabet", "tx:hihypert"),
+  P_Value = c(pval_age_group, pval_gender, pval_sysbp, pval_hidiabet, pval_hihypert)
+)
+```
 
 
 # male only
@@ -442,8 +491,11 @@ PEACE.m <- PEACE.m %>%
 
 
 ```{r}
-fit.m <- coxph(Surv(t2death,death) ~ Treatment + `Age Group` + `Systolic Blood Pressure` + `History of Diabetes` + `History of Hypertension`, data = PEACE.m, ties = 'breslow')
-summary(fit.m)
+fit.m1 <- coxph(Surv(t2death,death) ~ Treatment, data = PEACE.m, ties = 'breslow')
+summary(fit.m1)
+
+fit.m2 <- coxph(Surv(t2death,death) ~ Treatment + `Age Group` + `Systolic Blood Pressure` + `History of Diabetes` + `History of Hypertension`, data = PEACE.m, ties = 'breslow')
+summary(fit.m2)
 ```
 
 
@@ -473,29 +525,46 @@ PEACE.f <- PEACE.f %>%
 
 
 ```{r}
-fit.f <- coxph(Surv(t2death,death) ~ Treatment + `Age Group` + `Systolic Blood Pressure` + `History of Diabetes` + `History of Hypertension`, data = PEACE.f, ties = 'breslow')
-summary(fit.f)
+fit.f1 <- coxph(Surv(t2death,death) ~ Treatment, data = PEACE.f, ties = 'breslow')
+summary(fit.f1)
+
+fit.f2 <- coxph(Surv(t2death,death) ~ Treatment + `Age Group` + `Systolic Blood Pressure` + `History of Diabetes` + `History of Hypertension`, data = PEACE.f, ties = 'breslow')
+summary(fit.f2)
 ```
 
 
 # fig2 - forest plot for stratified analysis
 
-```{r fig.height=10, fig.width=10}
-p1 <- ggforest(model = fit.m,
+```{r fig.height=10, fig.width=20}
+p1 <- ggforest(model = fit.m1,
          data = PEACE.m, 
          cpositions = c(0.02,0.22,0.4),
          fontsize = 0.8, 
          noDigits = 2, 
-         main = "Male only")
+         main = "Male Only\n Unadjusted Model")
 
-p2 <- ggforest(model = fit.f,
+p2 <- ggforest(model = fit.m2,
+         data = PEACE.m, 
+         cpositions = c(0.02,0.22,0.4),
+         fontsize = 0.8, 
+         noDigits = 2, 
+         main = "Fully-adjusted Model")
+
+p3 <- ggforest(model = fit.f1,
          data = PEACE.f, 
          cpositions = c(0.02,0.22,0.4),
          fontsize = 0.8, 
          noDigits = 2, 
-         main = "Female only")
+         main = "Female Only\n Unadjusted Model")
 
-fig2 <- p1/p2
+p4 <- ggforest(model = fit.f2,
+         data = PEACE.f, 
+         cpositions = c(0.02,0.22,0.4),
+         fontsize = 0.8, 
+         noDigits = 2, 
+         main = "Fully-adjusted Model")
+
+fig2 <- (p1 + p3) / (p2 + p4) + plot_layout(heights = c(1, 3))
 fig2
 
 # save as png

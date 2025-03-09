@@ -569,7 +569,7 @@ fig2
 
 # save as png
 library(cowplot)
-png("fig2.png", width = 10, height = 10, units = "in", res = 300)
+png("fig2.png", width = 20, height = 10, units = "in", res = 300)
 print(fig2)
 dev.off()
 ```

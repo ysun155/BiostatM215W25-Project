@@ -49,7 +49,8 @@ sum(is.na(PEACE))
 table(PEACE$death)
 
 PEACE <- PEACE %>%
-  mutate(age.group = ifelse(age <= 65, 0, 1))
+  mutate(age.group = ifelse(age <= 65, 0, 1)) %>%
+  filter(t2death != 0)
 ```
 
 # visualization
@@ -577,6 +578,90 @@ dev.off()
 
 
 
+# fig3 - AFT model
+
+```{r}
+fit3 <- coxph(Surv(t2death,death) ~ tx + age + gender + sysbp + hidiabet + hihypert, data = PEACE, ties = 'breslow')
+cox.zph(fit3)
+
+#Get Cox-Snell residual based on Martingale residuals
+mg.residual <- resid(fit2, type = "martingale")
+cs.residual <- PEACE$death - mg.residual
+#Graphical Plot
+fit.cs <- survfit(Surv(cs.residual, PEACE$death) ~ 1) #Get Kaplan-Meier estiamtes
+H.cs <- cumsum(fit.cs$n.event/fit.cs$n.risk)
+plot(fit.cs$time, H.cs, type='s', col='blue',
+main = 'Cox-Snell Residual Plot',
+xlab = 'Residual', ylab = 'Nelson-Aalen Cum. Hazard')
+#Note here that 'time' is the value of the Cox-Snell residual
+abline(0, 1, col='red', lty = 2)
+```
+
+
+```{r fig.height=5, fig.width=5}
+par(mfrow=c(2,2))
+
+#- Fit different survival distributions
+fit.12.2.exp <- survreg(Surv(t2death,death) ~ tx + age + gender + sysbp + hidiabet + hihypert, data = PEACE, dist = 'exponential')
+fit.12.2.wb <- survreg(Surv(t2death,death) ~ tx + age + gender + sysbp + hidiabet + hihypert, data = PEACE, dist = 'weibull')
+fit.12.2.ll <- survreg(Surv(t2death,death) ~ tx + age + gender + sysbp + hidiabet + hihypert, data = PEACE, dist = 'loglogistic')
+fit.12.2.ln <- survreg(Surv(t2death,death) ~ tx + age + gender + sysbp + hidiabet + hihypert, data = PEACE, dist = 'lognormal')
+
+#Get Cox-Snell Residuals
+
+#Exponential
+sigma <- fit.12.2.exp$scale
+eta   <- -fit.12.2.exp$linear.predictors/sigma
+
+r.exp <- PEACE$t2death * exp(eta)
+
+fit   <- survfit(Surv(r.exp, PEACE$death) ~ 1)
+H.exp <- cumsum(fit$n.event / fit$n.risk)
+
+plot(H.exp ~ fit$time, type = 'l', main = 'Exponential AFT Model',
+     ylab = 'Estimated Cumulative Hazard', xlab = 'Cox-Snell Residual')
+abline(0, 1, col='red',  lty=2)
+
+
+#Weibull
+sigma  <- fit.12.2.wb$scale
+alpha  <- 1 / sigma
+eta    <- -fit.12.2.wb$linear.predictors / sigma
+
+r.wb <- PEACE$t2death^alpha * exp(eta)
+
+fit   <- survfit(Surv(r.wb, PEACE$death) ~ 1)
+H.wb  <- cumsum(fit$n.event/fit$n.risk)
+
+plot(H.wb ~ fit$time, type = 'l', main = 'Weibull AFT Model',
+     ylab = 'Estimated Cumulative Hazard', xlab = 'Cox-Snell Residual')
+abline(0, 1, col='red',  lty=2)
+
+#Log-Logistic
+sigma  <- fit.12.2.ll$scale
+alpha  <- 1 / sigma
+eta    <- -fit.12.2.ll$linear.predictors / sigma
+
+r.ll  <- -log(1/(1 + PEACE$t2death^alpha*exp(eta)))
+
+fit   <- survfit(Surv(r.ll, PEACE$death) ~ 1)
+H.ll  <- cumsum(fit$n.event / fit$n.risk)
+
+plot(H.ll ~ fit$time, type = 'l', main = 'Log-Logistic AFT Model',
+     ylab = 'Estimated Cumulative Hazard', xlab = 'Cox-Snell Residual')
+abline(0, 1, col='red',  lty=2)
+
+#Log-Normal Distribution
+eta    <- -fit.12.2.ln$linear.predictors / fit.12.2.ln$scale
+r.ln   <- -log(1 - pnorm((log(PEACE$t2death) - fit.12.2.ln$linear.predictors) / fit.12.2.ln$scale))
+
+fit   <- survfit(Surv(r.ln, PEACE$death) ~ 1)
+H.ln  <- cumsum(fit$n.event/fit$n.risk)
+
+plot(H.ln ~ fit$time, type = 'l', main = 'Log-Normal AFT Model',
+     ylab = 'Estimated Cumulative Hazard', xlab = 'Cox-Snell Residual')
+abline(0, 1, col='red',  lty = 2) 
+```
 
 
 
